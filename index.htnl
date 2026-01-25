@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobil Flappy Bird</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Kaydırmayı engelle */
+            background-color: #70c5ce; /* Gökyüzü rengi */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none; /* Mobilde çift dokunma zoom'unu engelle */
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Tıklamaların canvas'a geçmesini sağlar */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .score-display {
+            position: absolute;
+            top: 10%;
+            font-size: 4rem;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px #000;
+            z-index: 10;
+        }
+
+        .message {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 15px;
+            border: 3px solid #555;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            pointer-events: auto; /* Butonlara tıklanabilsin */
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 2rem;
+        }
+
+        p {
+            margin: 5px 0;
+            color: #666;
+            font-size: 1.2rem;
+        }
+
+        .btn {
+            background-color: #e96030;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.5rem;
+            border-radius: 50px;
+            cursor: pointer;
+            margin-top: 15px;
+            box-shadow: 0 4px #b84c26;
+            transition: transform 0.1s;
+        }
+
+        .btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 #b84c26;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Skor Göstergesi -->
+    <div id="scoreVal" class="score-display">0</div>
+
+    <!-- UI Katmanı (Başlangıç ve Bitiş Ekranları) -->
+    <div id="ui-layer">
+        <!-- Başlangıç Ekranı -->
+        <div id="startScreen" class="message">
+            <h1>Flappy Oyun</h1>
+            <p>Resim: img/image.jpg</p>
+            <p>Zıplamak için dokun!</p>
+            <button class="btn" onclick="startGame()">Başla</button>
+        </div>
+
+        <!-- Oyun Bitti Ekranı -->
+        <div id="gameOverScreen" class="message hidden">
+            <h1>Oyun Bitti!</h1>
+            <p>Skorun: <span id="finalScore">0</span></p>
+            <p>En Yüksek: <span id="bestScore">0</span></p>
+            <button class="btn" onclick="resetGame()">Tekrar Oyna</button>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        // --- AYARLAR VE DEĞİŞKENLER ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Ses efektleri (İsteğe bağlı, basit osilatör sesleri eklenebilir ama sessiz tutuyoruz)
+        
+        let frames = 0;
+        let score = 0;
+        let bestScore = localStorage.getItem('flappyBest') || 0;
+        let gameRunning = false;
+        let gameSpeed = 3; // Mobilde biraz daha yavaş akması daha iyi
+
+        // Oyun Durumu
+        const state = {
+            current: 0,
+            getReady: 0,
+            game: 1,
+            over: 2
+        };
+
+        // --- RESİM YÜKLEME ---
+        const birdImage = new Image();
+        birdImage.src = 'image.jpg'; // Senin resim dosyan
+        let isImageLoaded = false;
+        
+        birdImage.onload = function() {
+            isImageLoaded = true;
+        };
+        // Resim yoksa hata vermemesi için
+        birdImage.onerror = function() {
+            isImageLoaded = false;
+            console.log("image.jpg bulunamadı, varsayılan kare kullanılacak.");
+        };
+
+        // --- OYUN NESNELERİ ---
+
+        const bird = {
+            x: 50,
+            y: 150,
+            w: 40, // Kuş genişliği
+            h: 40, // Kuş yüksekliği
+            radius: 20, // Çarpışma yarıçapı
+            velocity: 0,
+            gravity: 0.25,
+            jumpStrength: 5.5, // Zıplama gücü
+            rotation: 0,
+            
+            draw: function() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                // Düşerken veya zıplarken dönme efekti
+                this.rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 4, (this.velocity * 0.1)));
+                ctx.rotate(this.rotation);
+
+                if (isImageLoaded) {
+                    // Resim varsa resmi çiz
+                    ctx.drawImage(birdImage, -this.w/2, -this.h/2, this.w, this.h);
+                } else {
+                    // Resim yoksa sarı bir kuş çiz (fallback)
+                    ctx.fillStyle = "#FFD700";
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.strokeStyle = "#FFF";
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    // Göz
+                    ctx.fillStyle = "#000";
+                    ctx.beginPath();
+                    ctx.arc(8, -8, 4, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            },
+            
+            update: function() {
+                // Fizik
+                this.velocity += this.gravity;
+                this.y += this.velocity;
+
+                // Zemin Çarpışması
+                if (this.y + this.h/2 >= canvas.height - 20) { // -20 zemin yüksekliği
+                    this.y = canvas.height - 20 - this.h/2;
+                    gameOver();
+                }
+                
+                // Tavan Çarpışması (isteğe bağlı, oyunun dışına çıkmasın)
+                if (this.y - this.h/2 <= 0) {
+                    this.y = this.h/2;
+                    this.velocity = 0;
+                }
+            },
+            
+            jump: function() {
+                this.velocity = -this.jumpStrength;
+            }
+        };
+
+        const pipes = {
+            items: [],
+            w: 60, // Boru genişliği
+            gap: 170, // Borular arası boşluk (Mobilde biraz daha geniş olması kolaylık sağlar)
+            dx: 3, // Boru hızı
+            
+            draw: function() {
+                for (let i = 0; i < this.items.length; i++) {
+                    let p = this.items[i];
+                    
+                    ctx.fillStyle = "#73BF2E"; // Boru yeşili
+                    ctx.strokeStyle = "#558c22";
+                    ctx.lineWidth = 3;
+
+                    // Üst Boru
+                    ctx.fillRect(p.x, 0, this.w, p.top);
+                    ctx.strokeRect(p.x, 0, this.w, p.top);
+                    
+                    // Alt Boru
+                    ctx.fillRect(p.x, canvas.height - p.bottom, this.w, p.bottom);
+                    ctx.strokeRect(p.x, canvas.height - p.bottom, this.w, p.bottom);
+                }
+            },
+            
+            update: function() {
+                // Her 120 karede bir yeni boru (ekran genişliğine göre ayarlanabilir)
+                // Mobilde ekranlar dar olduğu için sıklığı ayarlıyoruz
+                if (frames % 120 === 0) {
+                    // Rastgele yükseklik
+                    // min boru yüksekliği 50px olsun
+                    let availableHeight = canvas.height - this.gap - 100; // 100px marj
+                    let topHeight = Math.random() * availableHeight + 50;
+                    
+                    this.items.push({
+                        x: canvas.width,
+                        top: topHeight,
+                        bottom: canvas.height - (topHeight + this.gap),
+                        passed: false
+                    });
+                }
+                
+                for (let i = 0; i < this.items.length; i++) {
+                    let p = this.items[i];
+                    p.x -= this.dx;
+                    
+                    // Çarpışma Kontrolü (Basit AABB)
+                    // Kuşun kare sınırları: bird.x - w/2, bird.y - h/2
+                    let birdLeft = bird.x - bird.w/2 + 5; // +5 tolerans
+                    let birdRight = bird.x + bird.w/2 - 5;
+                    let birdTop = bird.y - bird.h/2 + 5;
+                    let birdBottom = bird.y + bird.h/2 - 5;
+
+                    // Üst boruya çarptı mı?
+                    if (birdRight > p.x && birdLeft < p.x + this.w && birdTop < p.top) {
+                        gameOver();
+                    }
+                    // Alt boruya çarptı mı?
+                    if (birdRight > p.x && birdLeft < p.x + this.w && birdBottom > canvas.height - p.bottom) {
+                        gameOver();
+                    }
+
+                    // Skoru Artır
+                    if (p.x + this.w < bird.x && !p.passed) {
+                        score++;
+                        document.getElementById('scoreVal').innerText = score;
+                        p.passed = true;
+                    }
+
+                    // Ekrandan çıkanı sil
+                    if (p.x + this.w <= 0) {
+                        this.items.shift();
+                        i--; // indexi düzelt
+                    }
+                }
+            },
+            
+            reset: function() {
+                this.items = [];
+            }
+        };
+
+        const bg = {
+            draw: function() {
+                // Basit bir zemin ve bulut çizimi
+                // Zemin
+                ctx.fillStyle = "#ded895";
+                ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+                // Çimen üstü
+                ctx.fillStyle = "#73bf2e";
+                ctx.fillRect(0, canvas.height - 25, canvas.width, 5);
+            }
+        };
+
+        // --- OYUN KONTROL FONKSİYONLARI ---
+
+        function init() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // Kontroller (Hem dokunmatik hem klavye)
+            window.addEventListener('keydown', function(e) {
+                if (e.code === 'Space') {
+                    actionTrigger();
+                }
+            });
+
+            window.addEventListener('touchstart', function(e) {
+                // Dokunmatik davranışı (zoom vb) engelle
+                // e.preventDefault(); // Butonlara tıklamayı bozmamak için sadece canvas üzerinde preventDefault yapılmalı, ama burada basitleştiriyoruz.
+                actionTrigger();
+            }, {passive: false});
+            
+            window.addEventListener('mousedown', function(e) {
+                // Sadece UI dışına tıklandığında
+                if(e.target.tagName !== 'BUTTON') {
+                    actionTrigger();
+                }
+            });
+
+            loop();
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // Kuşun başlangıç pozisyonunu ekrana göre ayarla
+            if (!gameRunning && state.current === state.getReady) {
+                bird.y = canvas.height / 2;
+                bird.x = canvas.width / 3;
+            }
+        }
+
+        function actionTrigger() {
+            if (state.current === state.getReady) {
+                // Oyunu başlat (Button ile yapılıyor ama ekrana dokununca da başlasın istersen burayı aç)
+                // startGame(); 
+            } else if (state.current === state.game) {
+                bird.jump();
+            } else if (state.current === state.over) {
+                // Oyun bittiğinde ekrana dokununca hemen resetlenmesin, butonu kullanalım
+            }
+        }
+
+        function startGame() {
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('gameOverScreen').classList.add('hidden');
+            document.getElementById('scoreVal').classList.remove('hidden');
+            
+            state.current = state.game;
+            gameRunning = true;
+            score = 0;
+            frames = 0;
+            document.getElementById('scoreVal').innerText = score;
+            
+            // Reset objects
+            bird.y = canvas.height / 2;
+            bird.x = canvas.width > 500 ? canvas.width / 3 : 80; // Mobilde biraz daha solda
+            bird.velocity = 0;
+            pipes.reset();
+        }
+
+        function gameOver() {
+            state.current = state.over;
+            gameRunning = false;
+            
+            // Skoru güncelle
+            if (score > bestScore) {
+                bestScore = score;
+                localStorage.setItem('flappyBest', bestScore);
+            }
+            
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('bestScore').innerText = bestScore;
+            document.getElementById('scoreVal').classList.add('hidden');
+            
+            // UI göster
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+        }
+
+        function resetGame() {
+            startGame();
+        }
+
+        function loop() {
+            // Arkaplanı temizle
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (state.current === state.getReady) {
+                // Başlangıç animasyonu (kuş havada süzülsün)
+                bird.y = (canvas.height / 2) + Math.cos(frames * 0.05) * 10;
+                bird.draw();
+                bg.draw();
+                frames++;
+            } 
+            else if (state.current === state.game) {
+                bird.update();
+                bird.draw();
+                pipes.update();
+                pipes.draw();
+                bg.draw();
+                frames++;
+            }
+            else if (state.current === state.over) {
+                bird.draw(); // Hareketsiz çiz
+                pipes.draw();
+                bg.draw();
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        // Başlat
+        init();
+
+    </script>
+</body>
+</html>
+
