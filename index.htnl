@@ -98,7 +98,7 @@
         <!-- Başlangıç Ekranı -->
         <div id="startScreen" class="message">
             <h1>Flappy Oyun</h1>
-            <p>Resim: img/image.jpg</p>
+            <p>Resim: image.jpg</p>
             <p>Zıplamak için dokun!</p>
             <button class="btn" onclick="startGame()">Başla</button>
         </div>
